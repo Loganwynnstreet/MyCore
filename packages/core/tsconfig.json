@@ -2,8 +2,9 @@
   "compilerOptions": {
     "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
     "strict": true, "declaration": true, "outDir": "dist", "rootDir": "src",
-    "skipLibCheck": true, "esModuleInterop": true, "types": ["node"],
+    "skipLibCheck": true, "esModuleInterop": true, "composite": true, "types": ["node"],
     "paths": { "better-sqlite3-multiple-ciphers": ["../../node_modules/@types/better-sqlite3/index.d.ts"] }
   },
   "include": ["src"]
 }
+

@@ -87,3 +87,15 @@ Newline-delimited JSON, one request/one response, max 1 MiB per message, strictl
 ## Open questions (lead will decide before D1 lands)
 1. Idle-timeout default: 30 min vs. lock when the OS session locks.
 2. Whether `get_context_bundle` (task-relevant summary) belongs in v0.1. Leaning no.
+
+## D1 status (implemented in `packages/daemon`)
+Done: protocol (strict, 1 MiB cap), `ai` + `admin` channels, per-request `authenticate`,
+owner-secret auth (constant-time), per-channel failure backoff, idle lock, `DaemonClient`,
+12 tests over real pipes/sockets.
+Decisions taken:
+- Idle lock is 30 min. **Lock on OS session lock is deferred to D4**: Node has no portable
+  hook for it and it needs a small native/OS-service piece; do not fake it.
+- No `get_context_bundle` in v0.1.
+- Windows pipe DACL cannot be tightened from Node. The owner secret file is restricted with
+  `icacls`, and the `ai` channel is token-gated. A cross-user pipe test remains a TODO for D4.
+- The daemon does not yet have an entry point/binary; D2 (CLI) and D4 (service) add that.
