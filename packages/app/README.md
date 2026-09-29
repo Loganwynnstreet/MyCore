@@ -6,7 +6,7 @@ allow-list in `src/main.ts`.
 
 ```
 npm run build                 # from the repo root: builds core, daemon, cli, mcp
-cd packages/app && npm start  # builds and launches the app (starts mycored if needed)
+cd packages/app && npm start  # bundles the renderer, builds and launches the app (starts mycored if needed)
 npm run preview               # http://localhost:5177 with a mock backend, for UI work
 ```
 
@@ -17,3 +17,14 @@ Notes
   for Node, not for Electron), so Node.js must be installed. Packaging will bundle it later.
 - Page content is always rendered with `textContent`; vault text, including AI suggestions, is untrusted.
 - `renderer/mock.js` is only used when the page is opened outside Electron.
+
+## The 3D guide
+`renderer/avatar3d/` (three.js + GSAP, bundled by esbuild into `renderer/bundle/`):
+- `fur.js`: shell-texture fur (one instanced draw per part) for a real soft, fuzzy silhouette
+- `model.js`: procedural model and rig (body, ears, tuft, arms, face, key charm, accessories, keyboard)
+- `index.js`: animation: idle life (breathing, blinks, saccades, cursor-following), mood poses tweened with
+  GSAP, one-shot performances (jump with anticipation and overshoot, pop, shake, wave, wake-up), and springs
+  for secondary motion (ears, tuft, swinging charm)
+- Falls back to the flat SVG guide (`avatar2d.js`) when WebGL is unavailable, or with `?2d` in the URL.
+- Honours `prefers-reduced-motion`. Rendering is capped at 60 fps and pauses when the window is hidden.
+- Open the page with `?debug` to get `window.__guide` for driving moods from automation.

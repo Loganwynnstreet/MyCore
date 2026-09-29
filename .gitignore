@@ -5,3 +5,4 @@ dist
 
 *.tsbuildinfo
 
+packages/app/renderer/bundle

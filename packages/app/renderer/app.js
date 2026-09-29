@@ -614,4 +614,6 @@ async function boot() {
 }
 
 if (!window.mycore) await import("./mock.js");
+// test hook for driving moods from automation: only when the page is opened with ?debug
+if (new URLSearchParams(location.search).has("debug")) window.__guide = cori;
 await boot();

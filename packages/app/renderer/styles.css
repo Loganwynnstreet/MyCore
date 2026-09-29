@@ -298,3 +298,10 @@ pre.snippet { margin: 0; background: var(--surface-2); border-radius: 10px; padd
   .bubble::before { display: none; }
   .spacer { display: none; }
 }
+
+/* 3D guide: a canvas that fills a fixed-aspect box */
+.cori3d { position: relative; display: block; aspect-ratio: 1 / 1.08; overflow: visible; }
+.cori3d canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.stage .cori3d { width: 270px; margin-top: -6px; }
+.gate .cori3d { width: 250px; }
+@media (max-width: 860px) { .stage .cori3d { width: 150px; } }
