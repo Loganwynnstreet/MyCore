@@ -96,3 +96,96 @@ describe("records", () => {
     expect(() => v.add({ type: "bogus" as any, data: {} })).toThrow();
   });
 });
+
+describe("passports", () => {
+  let v: Vault;
+  beforeEach(async () => { v = (await Vault.create(path, "correct horse", fast)).vault; });
+  afterEach(() => v.close());
+
+  it("creates and lists passports", () => {
+    const passport = v.createPassport({
+      label: "Claude AI",
+      scopes: { types: ["memory"], maxSensitivity: "personal", read: true, write: false },
+    });
+    expect(passport.id).toBeDefined();
+    expect(passport.label).toBe("Claude AI");
+    expect(passport.scopes.types).toEqual(["memory"]);
+    expect(passport.revokedAt).toBeNull();
+
+    const passports = v.listPassports();
+    expect(passports).toHaveLength(1);
+    expect(passports[0].id).toBe(passport.id);
+  });
+
+  it("revokes passports", () => {
+    const passport = v.createPassport({
+      label: "Test AI",
+      scopes: { types: ["memory"], maxSensitivity: "personal" },
+    });
+    expect(v.validatePassport(passport.id)).toBe(true);
+
+    const revoked = v.revokePassport(passport.id);
+    expect(revoked.revokedAt).toBeDefined();
+    expect(v.validatePassport(passport.id)).toBe(false);
+
+    const active = v.listPassports();
+    expect(active).toHaveLength(0);
+
+    const all = v.listPassports(true);
+    expect(all).toHaveLength(1);
+    expect(all[0].revokedAt).toBeDefined();
+  });
+
+  it("handles passport expiration", () => {
+    const expiredDate = new Date(Date.now() - 1000).toISOString();
+    const futureDate = new Date(Date.now() + 100000).toISOString();
+
+    const expired = v.createPassport({
+      label: "Expired",
+      scopes: { types: ["memory"] },
+      expiresAt: expiredDate,
+    });
+
+    const valid = v.createPassport({
+      label: "Valid",
+      scopes: { types: ["memory"] },
+      expiresAt: futureDate,
+    });
+
+    expect(v.validatePassport(expired.id)).toBe(false);
+    expect(v.validatePassport(valid.id)).toBe(true);
+  });
+
+  it("applies passport scopes to filters", () => {
+    v.add({ type: "memory", data: { text: "public" }, sensitivity: "public" });
+    v.add({ type: "memory", data: { text: "secret" }, sensitivity: "secret" });
+    v.add({ type: "person", data: { name: "Alice" } });
+
+    const passport = v.createPassport({
+      label: "Limited",
+      scopes: { types: ["memory"], maxSensitivity: "personal" },
+    });
+
+    const filter = v.applyPassport({ type: "memory" }, passport.id);
+    expect(filter.type).toBe("memory");
+    expect(filter.maxSensitivity).toBe("personal");
+
+    const results = v.list(filter);
+    expect(results).toHaveLength(1);
+    expect(results[0].sensitivity).toBe("public");
+  });
+
+  it("rejects invalid passport IDs", () => {
+    expect(() => v.revokePassport("nonexistent")).toThrow();
+    expect(() => v.applyPassport({}, "nonexistent")).toThrow();
+  });
+
+  it("rejects passport operations on already revoked passports", () => {
+    const passport = v.createPassport({
+      label: "Test",
+      scopes: { types: ["memory"] },
+    });
+    v.revokePassport(passport.id);
+    expect(() => v.revokePassport(passport.id)).toThrow();
+  });
+});
