@@ -279,10 +279,10 @@ pre.snippet { margin: 0; background: var(--surface-2); border-radius: 10px; padd
 .swatch input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; }
 .swatch:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
 .swatch:has(input:focus-visible) { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
-.swatch[data-look="cream"] { background: #f6e4c6; }
-.swatch[data-look="peach"] { background: #ffd0b0; }
-.swatch[data-look="sage"] { background: #d3e3c3; }
-.swatch[data-look="lilac"] { background: #dccff2; }
+.swatch[data-look="green"] { background: #35b872; }
+.swatch[data-look="blue"] { background: #4aa8e0; }
+.swatch[data-look="pink"] { background: #f07aa8; }
+.swatch[data-look="orange"] { background: #f39a3d; }
 .link-btn { background: none; border: 0; color: var(--ink-2); cursor: pointer; text-decoration: underline; font-size: 13px; }
 .link-btn:hover { color: var(--ink); }
 
@@ -300,8 +300,8 @@ pre.snippet { margin: 0; background: var(--surface-2); border-radius: 10px; padd
 }
 
 /* 3D guide: a canvas that fills a fixed-aspect box */
-.cori3d { position: relative; display: block; aspect-ratio: 1 / 1.08; overflow: visible; }
+.cori3d { position: relative; display: block; aspect-ratio: 1 / 1.2; overflow: visible; }
 .cori3d canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.stage .cori3d { width: 270px; margin-top: -6px; }
-.gate .cori3d { width: 250px; }
+.stage .cori3d { width: 300px; margin-top: -6px; }
+.gate .cori3d { width: 270px; }
 @media (max-width: 860px) { .stage .cori3d { width: 150px; } }
