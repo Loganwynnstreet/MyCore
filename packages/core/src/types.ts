@@ -32,7 +32,12 @@ export interface NewRecord {
 
 export interface ListFilter {
   type?: RecordType;
+  /** Match any of these types (combined with `type` by intersection). */
+  types?: RecordType[];
+  ids?: string[];
   tag?: string;
+  /** Match records carrying at least one of these tags. */
+  tagsAny?: string[];
   status?: RecordStatus;
   /** Highest sensitivity to include (inclusive). */
   maxSensitivity?: Sensitivity;

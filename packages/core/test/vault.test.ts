@@ -102,90 +102,96 @@ describe("passports", () => {
   beforeEach(async () => { v = (await Vault.create(path, "correct horse", fast)).vault; });
   afterEach(() => v.close());
 
-  it("creates and lists passports", () => {
-    const passport = v.createPassport({
-      label: "Claude AI",
-      scopes: { types: ["memory"], maxSensitivity: "personal", read: true, write: false },
-    });
-    expect(passport.id).toBeDefined();
-    expect(passport.label).toBe("Claude AI");
-    expect(passport.scopes.types).toEqual(["memory"]);
-    expect(passport.revokedAt).toBeNull();
+  const grant = (scopes: any, extra: any = {}) => v.createPassport({ label: "AI", scopes, ...extra });
 
-    const passports = v.listPassports();
-    expect(passports).toHaveLength(1);
-    expect(passports[0].id).toBe(passport.id);
+  it("issues a one-time token and stores only its hash", () => {
+    const { passport, token } = grant({ read: true });
+    expect(token.startsWith("mcp_")).toBe(true);
+    expect(JSON.stringify(v.listPassports())).not.toContain(token);
+    expect(v.authenticate(token).label).toBe("AI");
+    expect(passport.id).not.toBe(token);
   });
 
-  it("revokes passports", () => {
-    const passport = v.createPassport({
-      label: "Test AI",
-      scopes: { types: ["memory"], maxSensitivity: "personal" },
-    });
-    expect(v.validatePassport(passport.id)).toBe(true);
-
-    const revoked = v.revokePassport(passport.id);
-    expect(revoked.revokedAt).toBeDefined();
-    expect(v.validatePassport(passport.id)).toBe(false);
-
-    const active = v.listPassports();
-    expect(active).toHaveLength(0);
-
-    const all = v.listPassports(true);
-    expect(all).toHaveLength(1);
-    expect(all[0].revokedAt).toBeDefined();
-  });
-
-  it("handles passport expiration", () => {
-    const expiredDate = new Date(Date.now() - 1000).toISOString();
-    const futureDate = new Date(Date.now() + 100000).toISOString();
-
-    const expired = v.createPassport({
-      label: "Expired",
-      scopes: { types: ["memory"] },
-      expiresAt: expiredDate,
-    });
-
-    const valid = v.createPassport({
-      label: "Valid",
-      scopes: { types: ["memory"] },
-      expiresAt: futureDate,
-    });
-
-    expect(v.validatePassport(expired.id)).toBe(false);
-    expect(v.validatePassport(valid.id)).toBe(true);
-  });
-
-  it("applies passport scopes to filters", () => {
-    v.add({ type: "memory", data: { text: "public" }, sensitivity: "public" });
-    v.add({ type: "memory", data: { text: "secret" }, sensitivity: "secret" });
-    v.add({ type: "person", data: { name: "Alice" } });
-
-    const passport = v.createPassport({
-      label: "Limited",
-      scopes: { types: ["memory"], maxSensitivity: "personal" },
-    });
-
-    const filter = v.applyPassport({ type: "memory" }, passport.id);
-    expect(filter.type).toBe("memory");
-    expect(filter.maxSensitivity).toBe("personal");
-
-    const results = v.list(filter);
-    expect(results).toHaveLength(1);
-    expect(results[0].sensitivity).toBe("public");
-  });
-
-  it("rejects invalid passport IDs", () => {
-    expect(() => v.revokePassport("nonexistent")).toThrow();
-    expect(() => v.applyPassport({}, "nonexistent")).toThrow();
-  });
-
-  it("rejects passport operations on already revoked passports", () => {
-    const passport = v.createPassport({
-      label: "Test",
-      scopes: { types: ["memory"] },
-    });
+  it("rejects unknown, revoked and expired tokens", () => {
+    expect(() => v.authenticate("mcp_nope")).toThrow(/Invalid/);
+    const { passport, token } = grant({ read: true });
     v.revokePassport(passport.id);
-    expect(() => v.revokePassport(passport.id)).toThrow();
+    expect(() => v.authenticate(token)).toThrow(/Invalid/);
+    const exp = grant({ read: true }, { expiresAt: new Date(Date.now() - 1000).toISOString() });
+    expect(() => v.authenticate(exp.token)).toThrow(/Invalid/);
+    expect(() => v.revokePassport(passport.id)).toThrow(/already revoked/);
+    expect(() => v.revokePassport("nope")).toThrow();
+  });
+
+  it("revocation takes effect on already-open sessions", () => {
+    const { passport, token } = grant({ read: true });
+    const s = v.authenticate(token);
+    v.add({ type: "memory", data: { text: "x" } });
+    expect(s.list()).toHaveLength(1);
+    v.revokePassport(passport.id);
+    expect(() => s.list()).toThrow(/revoked/);
+  });
+
+  it("validates scopes and fails closed", () => {
+    expect(() => grant({})).toThrow(/read or write/);
+    expect(() => grant({ read: true, maxSensitivity: "secret" })).toThrow(/secret/);
+    expect(() => grant({ read: true, types: ["bogus"] })).toThrow(/unknown type/);
+    expect(() => grant({ read: true }, { expiresAt: "not-a-date" })).toThrow();
+  });
+
+  it("enforces multiple types, tags and the default sensitivity ceiling", () => {
+    v.add({ type: "memory", data: { text: "m" }, tags: ["work"] });
+    v.add({ type: "person", data: { name: "p" }, tags: ["work"] });
+    v.add({ type: "event", data: { title: "e" }, tags: ["work"] });
+    v.add({ type: "memory", data: { text: "untagged" } });
+    v.add({ type: "memory", data: { text: "priv" }, tags: ["work"], sensitivity: "private" });
+    const s = v.authenticate(grant({ read: true, types: ["memory", "person"], tags: ["work"] }).token);
+    expect(s.list().map((r) => r.type).sort()).toEqual(["memory", "person"]);
+    expect(s.list({ type: "event" })).toHaveLength(0);
+    expect(s.list({ types: ["event"] as any })).toHaveLength(2); // caller-supplied `types` is overridden
+    expect(s.list({ maxSensitivity: "secret" }).some((r) => r.sensitivity !== "public" && r.sensitivity !== "personal")).toBe(false);
+  });
+
+  it("never serves secret records or pending records, even if requested", () => {
+    v.add({ type: "memory", data: { text: "pin 1234" }, sensitivity: "secret" });
+    v.add({ type: "memory", data: { text: "queued" }, status: "pending" });
+    const s = v.authenticate(grant({ read: true, maxSensitivity: "private" }).token);
+    expect(s.list({ maxSensitivity: "secret", status: "pending" })).toHaveLength(0);
+    expect(s.search("pin", { maxSensitivity: "secret" })).toHaveLength(0);
+    expect(s.search("queued", { status: "pending" })).toHaveLength(0);
+  });
+
+  it("get() cannot reach out-of-scope records", () => {
+    const secret = v.add({ type: "memory", data: { text: "s" }, sensitivity: "secret" });
+    const person = v.add({ type: "person", data: { name: "p" } });
+    const ok = v.add({ type: "memory", data: { text: "ok" } });
+    const s = v.authenticate(grant({ read: true, types: ["memory"] }).token);
+    expect(s.get(secret.id)).toBeUndefined();
+    expect(s.get(person.id)).toBeUndefined();
+    expect(s.get(ok.id)?.id).toBe(ok.id);
+  });
+
+  it("requires explicit read/write grants and queues writes as pending", () => {
+    const ro = v.authenticate(grant({ read: true }).token);
+    expect(() => ro.add({ type: "memory", data: { text: "x" } })).toThrow(/writes/);
+    const wo = v.authenticate(grant({ write: true, types: ["memory"], tags: ["ai"] }).token);
+    expect(() => wo.list()).toThrow(/reads/);
+    expect(() => wo.add({ type: "person", data: {} })).toThrow(/type/);
+    expect(() => wo.add({ type: "memory", data: {}, tags: ["other"] })).toThrow(/tag/);
+    expect(() => wo.add({ type: "memory", data: {}, tags: ["ai"], sensitivity: "private" })).toThrow(/ceiling/);
+    const rec = wo.add({ type: "memory", data: { text: "learned" }, tags: ["ai"] });
+    expect(rec.status).toBe("pending");
+    expect(rec.source).toMatch(/^passport:/);
+    expect(v.list()).toHaveLength(0);
+    expect(v.list({ status: "pending" })).toHaveLength(1);
+  });
+
+  it("audits scoped access and failed authentication", () => {
+    const s = v.authenticate(grant({ read: true }).token);
+    s.list();
+    expect(() => v.authenticate("mcp_bad")).toThrow();
+    const actions = v.auditLog().map((a) => a.action);
+    expect(actions).toContain("scoped.list");
+    expect(actions).toContain("passport.auth_failed");
   });
 });

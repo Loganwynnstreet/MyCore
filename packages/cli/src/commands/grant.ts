@@ -21,13 +21,14 @@ export const grantCommand = new Command("grant")
 
     try {
       const scopes = parseJsonArg(options.scopes);
-      const passport = vault.createPassport({
+      const { passport, token } = vault.createPassport({
         label: options.label,
-        scopes,
+        scopes: scopes as any,
         expiresAt: options.expires || null,
       });
 
       console.log(`Passport created with ID: ${passport.id}`);
+      console.log(`Token (shown once, store it securely): ${token}`);
       console.log(`Label: ${passport.label}`);
       console.log(`Scopes: ${JSON.stringify(passport.scopes, null, 2)}`);
       console.log(`Expires: ${passport.expiresAt || "never"}`);

@@ -1,13 +1,15 @@
 import Database from "better-sqlite3-multiple-ciphers";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import * as C from "./crypto.js";
 import {
   RECORD_TYPES, SENSITIVITIES,
   type AuditEntry, type ListFilter, type NewPassport, type NewRecord, type Passport, type PassportScope, type RecordType, type Sensitivity, type VaultRecord,
 } from "./types.js";
+import { ScopedVault } from "./scoped.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
+const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 const keyPath = (p: string) => `${p}.keys`;
 const hex = (u: Uint8Array) => Buffer.from(u).toString("hex");
 
@@ -133,6 +135,14 @@ export class Vault {
           revoked_at TEXT
         );
         CREATE INDEX passports_revoked ON passports(revoked_at);
+        PRAGMA user_version = 2;
+      `);
+    }
+    if (v < 3) {
+      // Passports created under v2 have no token and can never authenticate; re-grant them.
+      this.db.exec(`
+        ALTER TABLE passports ADD COLUMN token_hash TEXT;
+        CREATE UNIQUE INDEX passports_token ON passports(token_hash);
         PRAGMA user_version = ${SCHEMA_VERSION};
       `);
     }
@@ -244,6 +254,19 @@ export class Vault {
     const w: string[] = [];
     const args: unknown[] = [];
     if (f.type) { w.push(`${p}type=?`); args.push(f.type); }
+    if (f.ids) {
+      w.push(`${p}id IN (${f.ids.map(() => "?").join(",") || "NULL"})`);
+      args.push(...f.ids);
+    }
+    if (f.types) {
+      // An empty list matches nothing (fail closed).
+      w.push(`${p}type IN (${f.types.map(() => "?").join(",") || "NULL"})`);
+      args.push(...f.types);
+    }
+    if (f.tagsAny) {
+      w.push(`EXISTS (SELECT 1 FROM json_each(${p}tags) WHERE value IN (${f.tagsAny.map(() => "?").join(",") || "NULL"}))`);
+      args.push(...f.tagsAny);
+    }
     w.push(`${p}status=?`); args.push(f.status ?? "active");
     if (f.tag) { w.push(`EXISTS (SELECT 1 FROM json_each(${p}tags) WHERE value=?)`); args.push(f.tag); }
     if (f.maxSensitivity) {
@@ -274,24 +297,42 @@ export class Vault {
 
   // ---- passports --------------------------------------------------------
 
-  createPassport(input: NewPassport): Passport {
+  /** Creates a passport. The bearer token is returned once; only its hash is stored. */
+  createPassport(input: NewPassport): { passport: Passport; token: string } {
+    const scopes = validateScopes(input.scopes);
+    if (input.expiresAt && Number.isNaN(Date.parse(input.expiresAt))) throw new Error("Invalid expiry date");
     const now = new Date().toISOString();
+    const token = `mcp_${randomBytes(32).toString("base64url")}`;
     const passport: Passport = {
       id: randomUUID(),
       label: input.label,
-      scopes: input.scopes,
+      scopes,
       createdAt: now,
       expiresAt: input.expiresAt ?? null,
       revokedAt: null,
     };
     this.db.transaction(() => {
       this.db.prepare(
-        `INSERT INTO passports (id,label,scopes,created_at,expires_at,revoked_at)
-         VALUES (?,?,?,?,?,?)`,
-      ).run(passport.id, passport.label, JSON.stringify(passport.scopes), now, passport.expiresAt, null);
+        `INSERT INTO passports (id,label,scopes,created_at,expires_at,revoked_at,token_hash)
+         VALUES (?,?,?,?,?,?,?)`,
+      ).run(passport.id, passport.label, JSON.stringify(scopes), now, passport.expiresAt, null, hashToken(token));
       this.audit("passport.create", "owner", passport.id, passport.label);
     })();
-    return passport;
+    return { passport, token };
+  }
+
+  /**
+   * Exchanges a bearer token for a scoped view of the vault. All access through the
+   * returned view is limited by, and audited under, the passport.
+   */
+  authenticate(token: string): ScopedVault {
+    const row = this.db.prepare("SELECT * FROM passports WHERE token_hash=?").get(hashToken(token));
+    const passport = row ? toPassport(row) : undefined;
+    if (!passport || !isActive(passport)) {
+      this.audit("passport.auth_failed", "unknown");
+      throw new Error("Invalid, revoked or expired passport");
+    }
+    return new ScopedVault(this, passport);
   }
 
   getPassport(id: string): Passport | undefined {
@@ -317,52 +358,6 @@ export class Vault {
       this.audit("passport.revoke", "owner", id, passport.label);
     })();
     return { ...passport, revokedAt: now };
-  }
-
-  /** Check if a passport is valid (not revoked, not expired). */
-  validatePassport(id: string): boolean {
-    const passport = this.getPassport(id);
-    if (!passport) return false;
-    if (passport.revokedAt) return false;
-    if (passport.expiresAt && new Date(passport.expiresAt) < new Date()) return false;
-    return true;
-  }
-
-  /** Apply passport scopes to a filter. Returns filter with appropriate restrictions. */
-  applyPassport(filter: ListFilter, passportId: string): ListFilter {
-    const passport = this.getPassport(passportId);
-    if (!passport) throw new Error(`Invalid passport: ${passportId}`);
-    if (!this.validatePassport(passportId)) throw new Error(`Passport is revoked or expired: ${passportId}`);
-
-    const result: ListFilter = { ...filter };
-
-    // Apply type restrictions
-    if (passport.scopes.types && passport.scopes.types.length > 0) {
-      if (result.type && !passport.scopes.types.includes(result.type)) {
-        throw new Error(`Passport does not allow access to type: ${result.type}`);
-      }
-      if (!result.type) {
-        // If no type specified, we can't restrict to multiple types in current filter structure
-        // This is a limitation - for now, if passport restricts types, user must specify one
-        if (passport.scopes.types.length === 1) {
-          result.type = passport.scopes.types[0];
-        }
-      }
-    }
-
-    // Apply sensitivity ceiling
-    if (passport.scopes.maxSensitivity) {
-      const currentMax = result.maxSensitivity ?? "secret";
-      const passportMax = passport.scopes.maxSensitivity;
-      const currentIndex = SENSITIVITIES.indexOf(currentMax);
-      const passportIndex = SENSITIVITIES.indexOf(passportMax);
-      result.maxSensitivity = SENSITIVITIES[Math.min(currentIndex, passportIndex)];
-    }
-
-    // Tag filtering would require more complex logic, skipping for now
-    // Write access check would be done at call site
-
-    return result;
   }
 
   // ---- keys ------------------------------------------------------------
@@ -393,6 +388,24 @@ function toRecord(r: any): VaultRecord {
     id: r.id, type: r.type as RecordType, data: JSON.parse(r.data), tags: JSON.parse(r.tags),
     sensitivity: r.sensitivity as Sensitivity, status: r.status, source: r.source,
     createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+function isActive(p: Passport): boolean {
+  return !p.revokedAt && !(p.expiresAt && Date.parse(p.expiresAt) <= Date.now());
+}
+
+/** Normalises scopes and fails closed: nothing is granted unless explicit. */
+function validateScopes(s: PassportScope): PassportScope {
+  const bad = (m: string) => { throw new Error(`Invalid passport scope: ${m}`); };
+  for (const t of s.types ?? []) if (!RECORD_TYPES.includes(t)) bad(`unknown type ${t}`);
+  if (s.maxSensitivity && !SENSITIVITIES.includes(s.maxSensitivity)) bad(`unknown sensitivity ${s.maxSensitivity}`);
+  if (s.maxSensitivity === "secret") bad("passports can never access 'secret' records");
+  if (!s.read && !s.write) bad("grant at least one of read or write");
+  return {
+    types: s.types, tags: s.tags,
+    maxSensitivity: s.maxSensitivity ?? "personal",
+    read: !!s.read, write: !!s.write,
   };
 }
 
