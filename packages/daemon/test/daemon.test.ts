@@ -169,6 +169,12 @@ describe("protocol hardening", () => {
     expect(JSON.parse((await closed).trim())).toMatchObject({ ok: false, error: "too_large" });
   });
 
+  it("a second daemon refuses to start and does not break the first", async () => {
+    const dup = new Daemon({ vaultPath, runDir: join(dir, "run"), name: (daemon as any).o.name });
+    await expect(dup.start()).rejects.toThrow(/already running/);
+    await unlock(); // the first daemon's secret is still valid
+  });
+
   it("does not leave the owner secret readable after stop", async () => {
     await daemon.stop();
     expect(() => readOwnerSecret(join(dir, "run"))).toThrow();

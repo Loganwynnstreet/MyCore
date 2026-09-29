@@ -61,22 +61,33 @@ export class Daemon {
 
   async start(): Promise<void> {
     mkdirSync(this.o.runDir, { recursive: true, mode: 0o700 });
+    // Never disturb a daemon that is already running (its socket and owner secret stay intact).
+    for (const address of Object.values(this.addresses)) {
+      if (await isListening(address)) throw new Error("mycored is already running for this vault");
+    }
+    try {
+      for (const channel of ["ai", "admin"] as const) {
+        const address = this.addresses[channel];
+        if (process.platform !== "win32") rmSync(address, { force: true }); // stale socket from a crash
+        const server = net.createServer((sock) => this.onConnection(channel, sock));
+        await new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(address, () => resolve());
+        });
+        // NOTE: Windows named pipes get Node's default DACL; we cannot tighten it from here.
+        // The admin channel is guarded by the owner secret and the ai channel by passport tokens.
+        if (process.platform !== "win32") chmodSync(address, 0o600);
+        this.servers.push(server);
+      }
+    } catch (e) {
+      await Promise.all(this.servers.map((s) => new Promise<void>((r) => s.close(() => r()))));
+      this.servers = [];
+      throw e;
+    }
+    // Only publish the secret once we own the sockets.
     const secretFile = ownerSecretPath(this.o.runDir);
     writeFileSync(secretFile, this.secret, { mode: 0o600 });
     restrictToCurrentUser(secretFile);
-    for (const channel of ["ai", "admin"] as const) {
-      const address = this.addresses[channel];
-      if (process.platform !== "win32") rmSync(address, { force: true });
-      const server = net.createServer((sock) => this.onConnection(channel, sock));
-      await new Promise<void>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(address, () => resolve());
-      });
-      // NOTE: Windows named pipes get Node's default DACL; we cannot tighten it from here.
-      // The admin channel is guarded by the owner secret and the ai channel by passport tokens.
-      if (process.platform !== "win32") chmodSync(address, 0o600);
-      this.servers.push(server);
-    }
   }
 
   async stop(): Promise<void> {
@@ -239,6 +250,14 @@ function publicRecord(r: VaultRecord) {
     id: r.id, type: r.type, data: r.data, tags: r.tags, sensitivity: r.sensitivity,
     source: r.source, createdAt: r.createdAt, updatedAt: r.updatedAt,
   };
+}
+
+function isListening(address: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.connect(address);
+    sock.once("connect", () => { sock.destroy(); resolve(true); });
+    sock.once("error", () => resolve(false));
+  });
 }
 
 function restrictToCurrentUser(file: string) {

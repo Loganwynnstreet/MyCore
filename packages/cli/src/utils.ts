@@ -1,12 +1,9 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { readFileSync } from "node:fs";
 import { Vault } from "@mycore/core";
-
-const DEFAULT_VAULT_PATH = join(homedir(), ".mycore", "vault.mycore");
+import { defaultVaultPath } from "@mycore/daemon";
+import { promptSecret } from "./prompt.js";
 
 export function getVaultPath(path?: string): string {
-  return path ?? DEFAULT_VAULT_PATH;
+  return path ?? defaultVaultPath();
 }
 
 export async function unlockVault(path: string): Promise<Vault> {
@@ -14,12 +11,12 @@ export async function unlockVault(path: string): Promise<Vault> {
   return await Vault.open(path, passphrase);
 }
 
-async function readPassphrase(): Promise<string> {
-  // For now, use environment variable. In production, use a proper TTY prompt
-  const passphrase = process.env.MYCORE_PASSPHRASE;
-  if (!passphrase) {
-    throw new Error("Passphrase required. Set MYCORE_PASSPHRASE environment variable.");
-  }
+/** Prompts on the terminal. MYCORE_PASSPHRASE still works for scripts but leaks via the environment. */
+export async function readPassphrase(): Promise<string> {
+  const fromEnv = process.env.MYCORE_PASSPHRASE;
+  if (fromEnv) return fromEnv;
+  const passphrase = await promptSecret("Passphrase: ");
+  if (!passphrase) throw new Error("A passphrase is required");
   return passphrase;
 }
 

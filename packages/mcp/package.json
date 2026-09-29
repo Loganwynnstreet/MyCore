@@ -1,0 +1,13 @@
+{
+  "name": "@mycore/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "mycore-mcp": "dist/index.js" },
+  "main": "dist/bridge.js",
+  "types": "dist/bridge.d.ts",
+  "dependencies": {
+    "@mycore/daemon": "file:../daemon",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "zod": "^4.6.5"
+  }
+}

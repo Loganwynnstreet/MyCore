@@ -7,7 +7,8 @@
   },
   "dependencies": {
     "@mycore/core": "file:../core",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "@mycore/daemon": "file:../daemon"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
