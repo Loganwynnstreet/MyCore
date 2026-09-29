@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Vault } from "../src/index.js";
+import { randomUUID } from "node:crypto";
+import { Vault, exportRecords } from "../src/index.js";
 
 const fast = { fastKdf: true };
 let dir: string, path: string;
@@ -193,5 +194,41 @@ describe("passports", () => {
     const actions = v.auditLog().map((a) => a.action);
     expect(actions).toContain("scoped.list");
     expect(actions).toContain("passport.auth_failed");
+  });
+});
+
+describe("export / restore", () => {
+  it("exports beyond the 100-row list cap and round-trips into a fresh vault", async () => {
+    const { vault: a } = await Vault.create(path, "correct horse", fast);
+    for (let i = 0; i < 250; i++) a.add({ type: "memory", data: { text: `m${i}` }, tags: [i % 2 ? "odd" : "even"] });
+    a.add({ type: "person", data: { name: "P" } });
+    a.add({ type: "memory", data: { text: "pin" }, sensitivity: "secret" });
+    a.add({ type: "memory", data: { text: "queued" }, status: "pending" });
+    const env = exportRecords(a);
+    expect(env.count).toBe(251); // secret and pending excluded by default
+    expect(env.containsSecrets).toBe(false);
+    expect(exportRecords(a, { types: ["memory", "person"], tags: ["odd"] }).count).toBe(125);
+    expect(() => exportRecords(a, { maxSensitivity: "secret" })).toThrow(/includeSecret/);
+    const full = exportRecords(a, { includeSecret: true, includePending: true });
+    expect(full.count).toBe(253);
+
+    const path2 = join(dir, "b.mycore");
+    const { vault: b } = await Vault.create(path2, "correct horse", fast);
+    expect(b.importRecords(full.records)).toEqual({ added: 253, skipped: 0 });
+    expect(b.importRecords(full.records)).toEqual({ added: 0, skipped: 253 }); // idempotent
+    expect(b.all({ status: "active" }).length + b.all({ status: "pending" }).length).toBe(253);
+    expect(b.search("m249")).toHaveLength(1);
+    a.close(); b.close();
+  });
+
+  it("import is all-or-nothing and validates records", async () => {
+    const { vault } = await Vault.create(path, "correct horse", fast);
+    const good = { id: randomUUID(), type: "memory", data: { text: "ok" }, tags: [], sensitivity: "personal", status: "active" };
+    const badType = { ...good, id: randomUUID(), type: "nope" };
+    expect(() => vault.importRecords([good, badType])).toThrow(/Record #1/);
+    expect(vault.all()).toHaveLength(0);
+    expect(() => vault.importRecords([{ ...good, data: [] }])).toThrow(/data/);
+    expect(() => vault.importRecords([{ ...good, id: "../x" }])).toThrow(/id/);
+    vault.close();
   });
 });

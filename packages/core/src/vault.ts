@@ -167,15 +167,52 @@ export class Vault {
       updatedAt: now,
     };
     this.db.transaction(() => {
-      this.db.prepare(
-        `INSERT INTO records (id,type,data,tags,sensitivity,status,source,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-      ).run(rec.id, rec.type, JSON.stringify(rec.data), JSON.stringify(rec.tags), rec.sensitivity,
-        rec.status, rec.source, now, now);
-      if (rec.status === "active") this.index(rec);
+      this.insertRecord(rec);
       this.audit("record.add", actor, rec.id, rec.type);
     })();
     return rec;
+  }
+
+  private insertRecord(rec: VaultRecord) {
+    this.db.prepare(
+      `INSERT INTO records (id,type,data,tags,sensitivity,status,source,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    ).run(rec.id, rec.type, JSON.stringify(rec.data), JSON.stringify(rec.tags), rec.sensitivity,
+      rec.status, rec.source, rec.createdAt, rec.updatedAt);
+    if (rec.status === "active") this.index(rec);
+  }
+
+  /** Runs `fn` atomically; any throw rolls everything back. */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
+  /**
+   * Every record matching the filter, with no row limit. Use this for export/backup;
+   * `list` is capped and would silently truncate.
+   */
+  all(f: Omit<ListFilter, "limit"> = {}): VaultRecord[] {
+    const { where, args } = this.filterSql(f);
+    return this.db.prepare(`SELECT * FROM records ${where} ORDER BY created_at, id`).all(...args).map(toRecord);
+  }
+
+  /**
+   * Restores records (e.g. from an export), keeping their ids and timestamps.
+   * Idempotent: ids already present are skipped. All-or-nothing: one invalid
+   * record aborts the whole batch.
+   */
+  importRecords(records: unknown[], actor = "import"): { added: number; skipped: number } {
+    return this.transaction(() => {
+      let added = 0, skipped = 0;
+      for (const [i, raw] of records.entries()) {
+        const rec = parseRecord(raw, i);
+        if (this.db.prepare("SELECT 1 FROM records WHERE id=?").get(rec.id)) { skipped++; continue; }
+        this.insertRecord(rec);
+        added++;
+      }
+      this.audit("records.import", actor, undefined, `added=${added} skipped=${skipped}`);
+      return { added, skipped };
+    });
   }
 
   get(id: string, actor = "owner"): VaultRecord | undefined {
@@ -388,6 +425,27 @@ function toRecord(r: any): VaultRecord {
     id: r.id, type: r.type as RecordType, data: JSON.parse(r.data), tags: JSON.parse(r.tags),
     sensitivity: r.sensitivity as Sensitivity, status: r.status, source: r.source,
     createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+function parseRecord(raw: unknown, i: number): VaultRecord {
+  const bad = (m: string): never => { throw new Error(`Record #${i}: ${m}`); };
+  if (!raw || typeof raw !== "object") return bad("not an object");
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || !/^[0-9a-f-]{36}$/i.test(r.id)) bad("missing or invalid id");
+  if (!RECORD_TYPES.includes(r.type as RecordType)) bad(`unknown type ${String(r.type)}`);
+  if (!SENSITIVITIES.includes(r.sensitivity as Sensitivity)) bad("unknown sensitivity");
+  if (r.status !== "active" && r.status !== "pending") bad("unknown status");
+  if (!r.data || typeof r.data !== "object" || Array.isArray(r.data)) bad("data must be an object");
+  if (!Array.isArray(r.tags) || r.tags.some((t) => typeof t !== "string")) bad("tags must be strings");
+  const now = new Date().toISOString();
+  const ts = (v: unknown) => (typeof v === "string" && !Number.isNaN(Date.parse(v)) ? v : now);
+  return {
+    id: r.id as string, type: r.type as RecordType, data: r.data as Record<string, unknown>,
+    tags: [...new Set(r.tags as string[])], sensitivity: r.sensitivity as Sensitivity,
+    status: r.status as VaultRecord["status"],
+    source: typeof r.source === "string" ? r.source : "import",
+    createdAt: ts(r.createdAt), updatedAt: ts(r.updatedAt),
   };
 }
 

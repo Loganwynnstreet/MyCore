@@ -63,3 +63,15 @@ Please put this work on its own branch (`feature/m4-import-export`), not the M3 
 ## What is fine
 Package split, the `Importer` interface, markdown export escaping, and the CLI command
 shape are reasonable. Keep those.
+
+## Update: core primitives now provided (commit on `claude/passport-hardening`)
+Blockers 1, 2 and the atomicity/idempotence part of 6 are solved in core. Do not reimplement
+them in `packages/import`; use them:
+- `vault.all(filter)`: unbounded, for export/backup (never use `list` for this).
+- `exportRecords(vault, opts)`: versioned envelope, all types/tags, secrets and pending
+  excluded unless `includeSecret` / `includePending`. Delete `exportFromVault`'s JSON path.
+- `vault.importRecords(records)`: validates, keeps ids/timestamps, idempotent, all-or-nothing.
+- `vault.transaction(fn)`.
+Still yours: the CLI export flags (`--include-secret`, `--force`, file mode 0600, warning that
+the file is plaintext), importer routing/format fixes (3, 4), `recover` (5), and mapping
+ChatGPT/Claude conversations to records with a stable external id so re-imports skip them.
