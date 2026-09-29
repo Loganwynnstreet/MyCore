@@ -1,27 +1,28 @@
 :root {
   color-scheme: light dark;
-  --bg: #f6f1e9;
-  --surface: #fffdf9;
-  --surface-2: #efe8dc;
-  --ink: #2a2830;
-  --ink-2: #6b6672;
-  --line: #e2d9ca;
-  --body: #2f7376;
-  --body-dark: #1f5254;
-  --belly: #d3ebe6;
-  --key: #f3b73f;
-  --accent: #2f7376;
+  --bg: #fbf3ea;
+  --surface: #fffaf4;
+  --surface-2: #f6e8d9;
+  --ink: #3a2730;
+  --ink-2: #80686c;
+  --line: #ecd9c6;
+  --key: #f5b842;
+  --accent: #bf5530;
   --accent-ink: #ffffff;
-  --danger: #b6412f;
+  --danger: #b3352a;
   --ok: #2c7a4b;
   --radius: 14px;
-  --shadow: 0 1px 2px rgba(40, 30, 10, .06), 0 6px 20px rgba(40, 30, 10, .06);
+  --shadow: 0 1px 2px rgba(80, 40, 20, .07), 0 6px 20px rgba(80, 40, 20, .07);
+
+  --cloak: #ee8a5a; --cloak-dark: #cf6a3f; --cloak-light: #f8b48b;
+  --hat: #c95a3d; --hat-light: #e07b57;
+  --skin: #ffdcc0; --hair: #7a4a3c; --glow: #ffd56b; --plum: #4a2c3a;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #17191c; --surface: #1f2226; --surface-2: #292d32; --ink: #ece9e4; --ink-2: #a19ca6; --line: #33373d;
-    --body: #4aa0a3; --body-dark: #2f7376; --belly: #cfe6e2; --accent: #4aa0a3; --accent-ink: #0d1516; --danger: #e0715e; --ok: #59b27c;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .3);
+    --bg: #1b1416; --surface: #251b1e; --surface-2: #30232a; --ink: #f6e9df; --ink-2: #b39ea0; --line: #402f34;
+    --accent: #f0895d; --accent-ink: #2a140c; --danger: #ee7d6d; --ok: #62bd85;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 6px 20px rgba(0, 0, 0, .35);
   }
 }
 
@@ -44,8 +45,8 @@ h1, h2, h3, p { margin: 0; }
   background: linear-gradient(180deg, var(--surface-2), var(--bg) 70%);
 }
 .brand { align-self: flex-start; font-weight: 700; letter-spacing: .2px; display: flex; gap: 8px; align-items: center; }
-.brand i { width: 10px; height: 10px; border-radius: 50%; background: var(--key); display: inline-block; }
-.stage .cori { width: 220px; height: auto; margin-top: 6px; }
+.brand i { width: 10px; height: 10px; border-radius: 50%; background: var(--key); box-shadow: 0 0 8px var(--key); display: inline-block; }
+.stage .cori { width: 230px; height: auto; margin-top: 6px; }
 .bubble {
   position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 14px 16px; box-shadow: var(--shadow); font-size: 15px; width: 100%; min-height: 76px;
@@ -164,67 +165,85 @@ pre.snippet { margin: 0; background: var(--surface-2); border-radius: 10px; padd
 
 /* ---------- Cori ---------- */
 .cori { overflow: visible; }
-.cori .shadow { fill: rgba(0, 0, 0, .12); }
-.cori .fill-body { fill: var(--body); }
-.cori .fill-dark { fill: var(--body-dark); }
-.cori .fill-belly { fill: var(--belly); }
-.cori .fill-key { fill: var(--key); }
-.cori .stroke-body { stroke: var(--body); stroke-width: 12; stroke-linecap: round; fill: none; }
-.cori .antenna .stroke-body { stroke-width: 5; }
-.cori .bulb { fill: var(--key); }
-.cori .bulb-glow { fill: var(--key); opacity: 0; }
-.cori .eye-white { fill: #fff; }
-.cori .pupil { fill: #22212a; transition: transform .3s ease; }
+.cori .shadow { fill: rgba(60, 20, 10, .16); }
+.cori .halo-a { stop-color: var(--glow); stop-opacity: .9; }
+.cori .halo-a.mid { stop-opacity: .35; }
+.cori .halo-b { stop-color: var(--glow); stop-opacity: 0; }
+.cori .halo { opacity: .55; }
+.cori .cloak { fill: var(--cloak); }
+.cori .cloak-light { fill: var(--cloak-light); opacity: .75; }
+.cori .trim { stroke: var(--glow); stroke-width: 4; stroke-linecap: round; opacity: .9; }
+.cori .hair { fill: var(--hair); }
+.cori .skin { fill: var(--skin); }
+.cori .sleeve { fill: var(--cloak-dark); }
+.cori .hat-cone { fill: var(--hat); }
+.cori .hat-cone-light { fill: var(--hat-light); opacity: .7; }
+.cori .hat-brim { fill: var(--hat); }
+.cori .hat-band { fill: var(--glow); }
+.cori .star { fill: var(--glow); stroke: #b9791c; stroke-width: 1; stroke-linejoin: round; }
+.cori .orb-glow { fill: var(--glow); opacity: .35; }
+.cori .orb { fill: var(--glow); stroke: #f0a92c; stroke-width: 2; }
+.cori .orb-key { fill: #b9791c; fill-rule: evenodd; }
+.cori .eye-white { fill: #fffaf4; }
+.cori .pupil { fill: #4a2c3a; transition: transform .3s ease; }
 .cori .glint { fill: #fff; }
-.cori .cheek { fill: #ff9d8a; opacity: .45; }
+.cori .cheek { fill: #ff8f88; opacity: .5; }
 .cori .lid-closed, .cori .lid-cheer, .cori .brow, .cori .mouth-smile, .cori .mouth-flat, .cori .mouth-worried {
-  fill: none; stroke: #22212a; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round;
+  fill: none; stroke: var(--plum); stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round;
 }
-.cori .mouth-open { fill: #22212a; stroke: #22212a; stroke-width: 3; stroke-linejoin: round; }
-.cori .mouth-o { fill: #22212a; }
+.cori .brow { stroke: var(--hair); }
+.cori .mouth-open { fill: #8e3a3a; stroke: var(--plum); stroke-width: 3; stroke-linejoin: round; }
+.cori .mouth-o { fill: #8e3a3a; }
 .cori .glyph { font-family: "Segoe UI", system-ui, sans-serif; font-weight: 800; fill: var(--ink-2); }
-.cori .bang .glyph { fill: var(--key); stroke: #3b2a00; stroke-width: 1; }
-.cori .sparkles path { fill: var(--key); }
+.cori .bang .glyph { fill: var(--glow); stroke: #b9791c; stroke-width: 1.2; }
+.cori .sparkles path, .cori .motes path { fill: var(--glow); }
 
-/* default: hide every optional part, then reveal per mood */
+/* hide the optional parts, then reveal per mood */
 .cori .lid-closed, .cori .lid-cheer, .cori .brow, .cori .mouth, .cori .zzz, .cori .bang, .cori .sparkles { display: none; }
 
 .cori[data-mood="sleep"] .eyes, .cori[data-mood="cheer"] .eyes { display: none; }
-.cori[data-mood="sleep"] .lid-closed { display: block; }
-.cori[data-mood="sleep"] .mouth-flat { display: block; }
-.cori[data-mood="sleep"] .zzz { display: block; }
-.cori[data-mood="sleep"] .fill-body { fill: color-mix(in srgb, var(--body) 72%, #888); }
-.cori[data-mood="sleep"] .bulb { opacity: .45; }
+.cori[data-mood="sleep"] .lid-closed, .cori[data-mood="sleep"] .mouth-flat, .cori[data-mood="sleep"] .zzz { display: block; }
+.cori[data-mood="sleep"] .orb { opacity: .5; }
+.cori[data-mood="sleep"] .orb-glow, .cori[data-mood="sleep"] .halo { opacity: .2; }
+.cori[data-mood="sleep"] .hat { transform: rotate(-4deg); transform-origin: 120px 84px; }
+.cori[data-mood="sleep"] .cloak { fill: color-mix(in srgb, var(--cloak) 78%, #7a6a70); }
 
 .cori[data-mood="happy"] .mouth-smile { display: block; }
 .cori[data-mood="alert"] .brow-alert, .cori[data-mood="alert"] .mouth-o, .cori[data-mood="alert"] .bang { display: block; }
-.cori[data-mood="alert"] .bulb-glow { opacity: .55; animation: pulse 1s ease-in-out infinite; }
+.cori[data-mood="alert"] .orb-glow { animation: pulse 1s ease-in-out infinite; }
+.cori[data-mood="alert"] .halo { opacity: .95; }
 .cori[data-mood="think"] .mouth-flat { display: block; }
 .cori[data-mood="think"] .pupil { transform: translate(-3px, -6px); }
 .cori[data-mood="worried"] .brow-worried, .cori[data-mood="worried"] .mouth-worried { display: block; }
+.cori[data-mood="worried"] .orb-glow { animation: flicker .5s steps(2) 4; }
 .cori[data-mood="cheer"] .lid-cheer, .cori[data-mood="cheer"] .mouth-open, .cori[data-mood="cheer"] .sparkles { display: block; }
-.cori[data-mood="cheer"] .cheek { opacity: .7; }
+.cori[data-mood="cheer"] .cheek { opacity: .8; }
+.cori[data-mood="cheer"] .halo { opacity: 1; }
 
-.cori .body, .cori .face, .cori .fill-belly, .cori .fill-key { transform-box: fill-box; }
-.cori { animation: float 4.5s ease-in-out infinite; }
-.cori[data-mood="sleep"] { animation: breathe 5s ease-in-out infinite; }
-.cori[data-mood="cheer"] { animation: hop .6s ease-in-out 2; }
-.cori[data-mood="worried"] { animation: shake .45s ease-in-out 1; }
+.cori .float { animation: float 4.5s ease-in-out infinite; }
+.cori[data-mood="sleep"] .float { animation: breathe 5s ease-in-out infinite; transform-origin: 120px 200px; }
+.cori[data-mood="cheer"] .float { animation: hop .6s ease-in-out 2; }
+.cori[data-mood="worried"] .float { animation: shake .45s ease-in-out 1; }
 .cori .eye { transform-box: fill-box; transform-origin: center; animation: blink 5s infinite; }
-.cori .arm-right-wrap { transform-origin: 200px 168px; }
+.cori .arm-right-wrap { transform-origin: 150px 160px; }
 .cori[data-mood="happy"] .arm-right-wrap, .cori[data-mood="cheer"] .arm-right-wrap { animation: wave 1.2s ease-in-out 2; }
 .cori .zzz .glyph { animation: drift 3s ease-in-out infinite; }
-.cori .sparkles path { animation: twinkle 1s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.cori .sparkles path, .cori .motes path { animation: twinkle 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.cori .motes path:nth-child(2) { animation-delay: .5s; }
+.cori .motes path:nth-child(3) { animation-delay: 1s; }
+.cori .halo { animation: glow 4s ease-in-out infinite; }
 
-@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
 @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.015, 1.03); } }
-@keyframes hop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-18px); } }
+@keyframes hop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-20px); } }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.08); } }
-@keyframes wave { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-24deg); } 60% { transform: rotate(6deg); } }
-@keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: .7; } }
+@keyframes wave { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-38deg) translateY(-8px); } 60% { transform: rotate(8deg); } }
+@keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: .75; } }
+@keyframes flicker { 0% { opacity: .1; } 100% { opacity: .5; } }
+@keyframes glow { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 @keyframes drift { 0%, 100% { transform: translateY(0); opacity: .9; } 50% { transform: translateY(-4px); opacity: .5; } }
-@keyframes twinkle { 0%, 100% { transform: scale(.7); opacity: .6; } 50% { transform: scale(1.1); opacity: 1; } }
+@keyframes twinkle { 0%, 100% { transform: scale(.6); opacity: .5; } 50% { transform: scale(1.15); opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
