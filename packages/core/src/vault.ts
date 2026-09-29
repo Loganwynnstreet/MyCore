@@ -1,13 +1,15 @@
 import Database from "better-sqlite3-multiple-ciphers";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import * as C from "./crypto.js";
 import {
   RECORD_TYPES, SENSITIVITIES,
-  type AuditEntry, type ListFilter, type NewRecord, type RecordType, type Sensitivity, type VaultRecord,
+  type AuditEntry, type ListFilter, type NewPassport, type NewRecord, type Passport, type PassportScope, type RecordType, type Sensitivity, type VaultRecord,
 } from "./types.js";
+import { ScopedVault } from "./scoped.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 3;
+const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 const keyPath = (p: string) => `${p}.keys`;
 const hex = (u: Uint8Array) => Buffer.from(u).toString("hex");
 
@@ -119,6 +121,28 @@ export class Vault {
           record_id TEXT,
           detail TEXT
         );
+        PRAGMA user_version = 1;
+      `);
+    }
+    if (v < 2) {
+      this.db.exec(`
+        CREATE TABLE passports (
+          id TEXT PRIMARY KEY,
+          label TEXT NOT NULL,
+          scopes TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          expires_at TEXT,
+          revoked_at TEXT
+        );
+        CREATE INDEX passports_revoked ON passports(revoked_at);
+        PRAGMA user_version = 2;
+      `);
+    }
+    if (v < 3) {
+      // Passports created under v2 have no token and can never authenticate; re-grant them.
+      this.db.exec(`
+        ALTER TABLE passports ADD COLUMN token_hash TEXT;
+        CREATE UNIQUE INDEX passports_token ON passports(token_hash);
         PRAGMA user_version = ${SCHEMA_VERSION};
       `);
     }
@@ -143,15 +167,52 @@ export class Vault {
       updatedAt: now,
     };
     this.db.transaction(() => {
-      this.db.prepare(
-        `INSERT INTO records (id,type,data,tags,sensitivity,status,source,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-      ).run(rec.id, rec.type, JSON.stringify(rec.data), JSON.stringify(rec.tags), rec.sensitivity,
-        rec.status, rec.source, now, now);
-      if (rec.status === "active") this.index(rec);
+      this.insertRecord(rec);
       this.audit("record.add", actor, rec.id, rec.type);
     })();
     return rec;
+  }
+
+  private insertRecord(rec: VaultRecord) {
+    this.db.prepare(
+      `INSERT INTO records (id,type,data,tags,sensitivity,status,source,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    ).run(rec.id, rec.type, JSON.stringify(rec.data), JSON.stringify(rec.tags), rec.sensitivity,
+      rec.status, rec.source, rec.createdAt, rec.updatedAt);
+    if (rec.status === "active") this.index(rec);
+  }
+
+  /** Runs `fn` atomically; any throw rolls everything back. */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
+  /**
+   * Every record matching the filter, with no row limit. Use this for export/backup;
+   * `list` is capped and would silently truncate.
+   */
+  all(f: Omit<ListFilter, "limit"> = {}): VaultRecord[] {
+    const { where, args } = this.filterSql(f);
+    return this.db.prepare(`SELECT * FROM records ${where} ORDER BY created_at, id`).all(...args).map(toRecord);
+  }
+
+  /**
+   * Restores records (e.g. from an export), keeping their ids and timestamps.
+   * Idempotent: ids already present are skipped. All-or-nothing: one invalid
+   * record aborts the whole batch.
+   */
+  importRecords(records: unknown[], actor = "import"): { added: number; skipped: number } {
+    return this.transaction(() => {
+      let added = 0, skipped = 0;
+      for (const [i, raw] of records.entries()) {
+        const rec = parseRecord(raw, i);
+        if (this.db.prepare("SELECT 1 FROM records WHERE id=?").get(rec.id)) { skipped++; continue; }
+        this.insertRecord(rec);
+        added++;
+      }
+      this.audit("records.import", actor, undefined, `added=${added} skipped=${skipped}`);
+      return { added, skipped };
+    });
   }
 
   get(id: string, actor = "owner"): VaultRecord | undefined {
@@ -230,6 +291,19 @@ export class Vault {
     const w: string[] = [];
     const args: unknown[] = [];
     if (f.type) { w.push(`${p}type=?`); args.push(f.type); }
+    if (f.ids) {
+      w.push(`${p}id IN (${f.ids.map(() => "?").join(",") || "NULL"})`);
+      args.push(...f.ids);
+    }
+    if (f.types) {
+      // An empty list matches nothing (fail closed).
+      w.push(`${p}type IN (${f.types.map(() => "?").join(",") || "NULL"})`);
+      args.push(...f.types);
+    }
+    if (f.tagsAny) {
+      w.push(`EXISTS (SELECT 1 FROM json_each(${p}tags) WHERE value IN (${f.tagsAny.map(() => "?").join(",") || "NULL"}))`);
+      args.push(...f.tagsAny);
+    }
     w.push(`${p}status=?`); args.push(f.status ?? "active");
     if (f.tag) { w.push(`EXISTS (SELECT 1 FROM json_each(${p}tags) WHERE value=?)`); args.push(f.tag); }
     if (f.maxSensitivity) {
@@ -256,6 +330,71 @@ export class Vault {
     return this.db.prepare("SELECT * FROM audit ORDER BY id DESC LIMIT ?").all(limit).map((r: any) => ({
       id: r.id, ts: r.ts, actor: r.actor, action: r.action, recordId: r.record_id, detail: r.detail,
     }));
+  }
+
+  // ---- passports --------------------------------------------------------
+
+  /** Creates a passport. The bearer token is returned once; only its hash is stored. */
+  createPassport(input: NewPassport): { passport: Passport; token: string } {
+    const scopes = validateScopes(input.scopes);
+    if (input.expiresAt && Number.isNaN(Date.parse(input.expiresAt))) throw new Error("Invalid expiry date");
+    const now = new Date().toISOString();
+    const token = `mcp_${randomBytes(32).toString("base64url")}`;
+    const passport: Passport = {
+      id: randomUUID(),
+      label: input.label,
+      scopes,
+      createdAt: now,
+      expiresAt: input.expiresAt ?? null,
+      revokedAt: null,
+    };
+    this.db.transaction(() => {
+      this.db.prepare(
+        `INSERT INTO passports (id,label,scopes,created_at,expires_at,revoked_at,token_hash)
+         VALUES (?,?,?,?,?,?,?)`,
+      ).run(passport.id, passport.label, JSON.stringify(scopes), now, passport.expiresAt, null, hashToken(token));
+      this.audit("passport.create", "owner", passport.id, passport.label);
+    })();
+    return { passport, token };
+  }
+
+  /**
+   * Exchanges a bearer token for a scoped view of the vault. All access through the
+   * returned view is limited by, and audited under, the passport.
+   */
+  authenticate(token: string): ScopedVault {
+    const row = this.db.prepare("SELECT * FROM passports WHERE token_hash=?").get(hashToken(token));
+    const passport = row ? toPassport(row) : undefined;
+    if (!passport || !isActive(passport)) {
+      this.audit("passport.auth_failed", "unknown");
+      throw new Error("Invalid, revoked or expired passport");
+    }
+    return new ScopedVault(this, passport);
+  }
+
+  getPassport(id: string): Passport | undefined {
+    const row = this.db.prepare("SELECT * FROM passports WHERE id=?").get(id);
+    return row ? toPassport(row) : undefined;
+  }
+
+  listPassports(includeRevoked = false): Passport[] {
+    const rows = includeRevoked
+      ? this.db.prepare("SELECT * FROM passports ORDER BY created_at DESC").all()
+      : this.db.prepare("SELECT * FROM passports WHERE revoked_at IS NULL ORDER BY created_at DESC").all();
+    return rows.map(toPassport);
+  }
+
+  revokePassport(id: string): Passport {
+    const cur = this.db.prepare("SELECT * FROM passports WHERE id=?").get(id);
+    if (!cur) throw new Error(`No such passport: ${id}`);
+    const passport = toPassport(cur);
+    if (passport.revokedAt) throw new Error(`Passport already revoked: ${id}`);
+    const now = new Date().toISOString();
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE passports SET revoked_at=? WHERE id=?").run(now, id);
+      this.audit("passport.revoke", "owner", id, passport.label);
+    })();
+    return { ...passport, revokedAt: now };
   }
 
   // ---- keys ------------------------------------------------------------
@@ -286,6 +425,56 @@ function toRecord(r: any): VaultRecord {
     id: r.id, type: r.type as RecordType, data: JSON.parse(r.data), tags: JSON.parse(r.tags),
     sensitivity: r.sensitivity as Sensitivity, status: r.status, source: r.source,
     createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+function parseRecord(raw: unknown, i: number): VaultRecord {
+  const bad = (m: string): never => { throw new Error(`Record #${i}: ${m}`); };
+  if (!raw || typeof raw !== "object") return bad("not an object");
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || !/^[0-9a-f-]{36}$/i.test(r.id)) bad("missing or invalid id");
+  if (!RECORD_TYPES.includes(r.type as RecordType)) bad(`unknown type ${String(r.type)}`);
+  if (!SENSITIVITIES.includes(r.sensitivity as Sensitivity)) bad("unknown sensitivity");
+  if (r.status !== "active" && r.status !== "pending") bad("unknown status");
+  if (!r.data || typeof r.data !== "object" || Array.isArray(r.data)) bad("data must be an object");
+  if (!Array.isArray(r.tags) || r.tags.some((t) => typeof t !== "string")) bad("tags must be strings");
+  const now = new Date().toISOString();
+  const ts = (v: unknown) => (typeof v === "string" && !Number.isNaN(Date.parse(v)) ? v : now);
+  return {
+    id: r.id as string, type: r.type as RecordType, data: r.data as Record<string, unknown>,
+    tags: [...new Set(r.tags as string[])], sensitivity: r.sensitivity as Sensitivity,
+    status: r.status as VaultRecord["status"],
+    source: typeof r.source === "string" ? r.source : "import",
+    createdAt: ts(r.createdAt), updatedAt: ts(r.updatedAt),
+  };
+}
+
+function isActive(p: Passport): boolean {
+  return !p.revokedAt && !(p.expiresAt && Date.parse(p.expiresAt) <= Date.now());
+}
+
+/** Normalises scopes and fails closed: nothing is granted unless explicit. */
+function validateScopes(s: PassportScope): PassportScope {
+  const bad = (m: string) => { throw new Error(`Invalid passport scope: ${m}`); };
+  for (const t of s.types ?? []) if (!RECORD_TYPES.includes(t)) bad(`unknown type ${t}`);
+  if (s.maxSensitivity && !SENSITIVITIES.includes(s.maxSensitivity)) bad(`unknown sensitivity ${s.maxSensitivity}`);
+  if (s.maxSensitivity === "secret") bad("passports can never access 'secret' records");
+  if (!s.read && !s.write) bad("grant at least one of read or write");
+  return {
+    types: s.types, tags: s.tags,
+    maxSensitivity: s.maxSensitivity ?? "personal",
+    read: !!s.read, write: !!s.write,
+  };
+}
+
+function toPassport(r: any): Passport {
+  return {
+    id: r.id,
+    label: r.label,
+    scopes: JSON.parse(r.scopes) as PassportScope,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+    revokedAt: r.revoked_at,
   };
 }
 
