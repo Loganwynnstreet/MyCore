@@ -152,6 +152,46 @@ describe("ai channel", () => {
   });
 });
 
+describe("owner record ops", () => {
+  it("lists, searches, adds, removes and masks secrets", async () => {
+    await unlock();
+    const a = await connect("admin");
+    const all: any = await a.request("records", {}, { secret });
+    expect(all.result).toHaveLength(3);
+    const masked = all.result.find((r: any) => r.sensitivity === "secret");
+    expect(masked.data).toBeNull();
+    expect(JSON.stringify(all)).not.toContain("1234");
+    expect(((await a.request("records", { query: "tea" }, { secret })) as any).result).toHaveLength(1);
+    const added: any = await a.request("add_record", { type: "memory", data: { text: "new" }, tags: ["x"] }, { secret });
+    expect(added.ok).toBe(true);
+    expect(await a.request("remove_record", { id: added.result.id }, { secret })).toMatchObject({ ok: true, result: { removed: true } });
+    const stats: any = await a.request("stats", {}, { secret });
+    expect(stats.result.counts).toEqual({ memory: 2, person: 1 });
+  });
+});
+
+describe("vault creation", () => {
+  it("creates a vault through the admin channel only when none exists", async () => {
+    const dir2 = mkdtempSync(join(tmpdir(), "mycore-c-"));
+    const d = new Daemon({ vaultPath: join(dir2, "new.mycore"), runDir: join(dir2, "run"), name: randomUUID().slice(0, 8) });
+    await d.start();
+    const sec = readOwnerSecret(join(dir2, "run"));
+    const a = await DaemonClient.connect(d.addresses.admin);
+    try {
+      expect(await a.request("status", {}, { secret: sec })).toMatchObject({ ok: true, result: { locked: true, exists: false } });
+      const made: any = await a.request("create", { passphrase: "brand new pass" }, { secret: sec });
+      expect(made.result.recoveryPhrase.split(" ")).toHaveLength(24);
+      expect(await a.request("status", {}, { secret: sec })).toMatchObject({ result: { locked: false, exists: true } });
+      expect(await a.request("create", { passphrase: "another pass!!" }, { secret: sec })).toMatchObject({ ok: false, error: "vault_exists" });
+      expect(await a.request("create", { passphrase: "x" })).toMatchObject({ ok: false, error: "unauthorized" });
+    } finally {
+      a.close();
+      await d.stop();
+      rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("protocol hardening", () => {
   it("rejects malformed requests", async () => {
     const ai = await connect("ai");

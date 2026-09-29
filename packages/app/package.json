@@ -1,0 +1,21 @@
+{
+  "name": "@mycore/app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p . && node scripts/build-renderer.mjs",
+    "start": "npm run build && electron .",
+    "preview": "node scripts/build-renderer.mjs && node scripts/preview-server.mjs"
+  },
+  "dependencies": {
+    "@mycore/daemon": "file:../daemon",
+    "gsap": "^3.15.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "esbuild": "^0.28.2"
+  }
+}
