@@ -1,0 +1,17 @@
+{
+  "name": "@mycore/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "mycore-mcp": "dist/index.js"
+  },
+  "dependencies": {
+    "@mycore/core": "file:../core",
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}
