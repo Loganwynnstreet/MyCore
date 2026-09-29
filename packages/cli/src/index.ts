@@ -9,6 +9,7 @@ import { grantCommand } from "./commands/grant.js";
 import { revokeCommand } from "./commands/revoke.js";
 import { passportsCommand } from "./commands/passports.js";
 import { auditCommand } from "./commands/audit.js";
+import { unlockCommand, lockCommand, statusCommand, pendingCommand, approveCommand, rejectCommand } from "./commands/daemon-ctl.js";
 
 const program = new Command();
 
@@ -26,5 +27,6 @@ program.addCommand(grantCommand);
 program.addCommand(revokeCommand);
 program.addCommand(passportsCommand);
 program.addCommand(auditCommand);
+for (const c of [unlockCommand, lockCommand, statusCommand, pendingCommand, approveCommand, rejectCommand]) program.addCommand(c);
 
 program.parse();

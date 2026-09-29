@@ -49,3 +49,11 @@ Still open — junior, please do these next (CLI package):
 - Returned record content is untrusted data going *into* a model: wrap results so it is
   clear they are data, not instructions.
 - `add_memory` maps to `ScopedVault.add` (always pending).
+
+## Update (lead took D2-D4 core work directly)
+Done by the lead in `claude/daemon-cli-mcp`: daemon entry point (`mycored`), CLI
+`unlock/lock/status/pending/approve/reject` and daemon-backed `grant/revoke/passports/audit`
+(TTY passphrase prompt, `init` creates the directory and confirms the passphrase), and a new
+token-only MCP bridge in `packages/mcp`. **PR 3 (old MCP server) is superseded; close it.**
+The junior's remaining CLI items above that are still open: `recover` (see REVIEW-M4),
+`add/get/search/list` end-to-end tests, `as any` removal in `add`, and the M4 import/export work.

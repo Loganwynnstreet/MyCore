@@ -1,29 +1,16 @@
 import { Command } from "commander";
-import { Vault } from "@mycore/core";
-import { getVaultPath, unlockVault } from "../utils.js";
+import type { Passport } from "@mycore/core";
+import { adminCall, run } from "../daemon.js";
 
 export const passportsCommand = new Command("passports")
-  .description("List all passports")
-  .option("-p, --path <path>", "Path to vault file")
+  .description("List passports")
   .option("--revoked", "Include revoked passports")
-  .action(async (options) => {
-    const path = getVaultPath(options.path);
-    let vault: Vault;
-
-    try {
-      vault = await unlockVault(path);
-    } catch (error) {
-      console.error(`Error unlocking vault: ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
+  .action((o) => run(async () => {
+    const ps = await adminCall<Passport[]>("passports", { includeRevoked: !!o.revoked });
+    if (ps.length === 0) return console.log("No passports.");
+    for (const p of ps) {
+      const state = p.revokedAt ? "revoked" : p.expiresAt && Date.parse(p.expiresAt) <= Date.now() ? "expired" : "active";
+      const s = p.scopes;
+      console.log(`${p.id}  ${p.label}  [${state}]  ${s.read ? "read " : ""}${s.write ? "write " : ""}types=${s.types?.join(",") ?? "all"} tags=${s.tags?.join(",") ?? "all"} max=${s.maxSensitivity}`);
     }
-
-    try {
-      const passports = vault.listPassports(options.revoked);
-      console.log(JSON.stringify(passports, null, 2));
-      vault.close();
-    } catch (error) {
-      vault.close();
-      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
-    }
-  });
+  })());
