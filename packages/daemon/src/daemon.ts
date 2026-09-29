@@ -1,6 +1,6 @@
 import net from "node:net";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { Vault, type ListFilter, type RecordType, type Sensitivity, type ScopedVault, type VaultRecord } from "@mycore/core";
@@ -8,6 +8,7 @@ import {
   AI_OPS, ADMIN_OPS, MAX_MESSAGE_BYTES, ProtocolError, int, parseRequest, str, strList,
   type Channel, type Request, type Response,
 } from "./protocol.js";
+import { addressFor, ownerSecretPath } from "./paths.js";
 
 export interface DaemonOptions {
   vaultPath: string;
@@ -18,14 +19,6 @@ export interface DaemonOptions {
   /** Lock after this many ms without a valid request. Default 30 minutes. */
   idleMs?: number;
 }
-
-export function addressFor(channel: Channel, runDir: string, name = "default"): string {
-  return process.platform === "win32"
-    ? `\\\\.\\pipe\\mycore-${name}-${channel}`
-    : join(runDir, `${name}-${channel}.sock`);
-}
-
-export const ownerSecretPath = (runDir: string) => join(runDir, "owner.key");
 
 const sha = (s: string) => createHash("sha256").update(s).digest();
 const safeEqual = (a: string, b: string) => timingSafeEqual(sha(a), sha(b));
@@ -206,7 +199,14 @@ export class Daemon {
     if (!req.secret || !safeEqual(req.secret, this.secret)) return this.authFailed("admin");
     if (!(ADMIN_OPS as readonly string[]).includes(req.op)) throw new ProtocolError("unknown_op", req.op);
     const a = req.args;
-    if (req.op === "status") return { locked: this.locked };
+    if (req.op === "status") return { locked: this.locked, exists: existsSync(this.o.vaultPath) };
+    if (req.op === "create") {
+      if (existsSync(this.o.vaultPath)) throw new ProtocolError("vault_exists", "a vault already exists");
+      const { vault, recoveryPhrase } = await Vault.create(this.o.vaultPath, str(a, "passphrase")!);
+      this.vault = vault;
+      this.touch();
+      return { recoveryPhrase };
+    }
     if (req.op === "lock") { this.lock(); return { locked: true }; }
     if (req.op === "unlock") {
       if (this.vault) throw new ProtocolError("already_unlocked", "vault is already unlocked");
@@ -239,9 +239,33 @@ export class Daemon {
       case "revoke": return v.revokePassport(str(a, "id")!);
       case "passports": return v.listPassports(a.includeRevoked === true);
       case "audit": return v.auditLog(int(a, "limit") ?? 100);
+      case "records": {
+        const type = str(a, "type", false) as RecordType | undefined;
+        const limit = Math.min(int(a, "limit") ?? 200, 500);
+        const query = str(a, "query", false);
+        return (query ? v.search(query, { type, limit }) : v.list({ type, limit })).map(ownerRecord);
+      }
+      case "add_record": {
+        if (!a.data || typeof a.data !== "object" || Array.isArray(a.data)) throw new ProtocolError("bad_request", "data must be an object");
+        return ownerRecord(v.add({
+          type: str(a, "type")! as RecordType, data: a.data as Record<string, unknown>,
+          tags: strList(a, "tags"), sensitivity: str(a, "sensitivity", false) as Sensitivity | undefined,
+        }));
+      }
+      case "remove_record": return { removed: v.remove(str(a, "id")!) };
+      case "stats": {
+        const counts: Record<string, number> = {};
+        for (const r of v.all({ status: "active" })) counts[r.type] = (counts[r.type] ?? 0) + 1;
+        return { counts, pending: v.all({ status: "pending" }).length, connections: v.listPassports().length };
+      }
     }
     throw new ProtocolError("unknown_op", req.op);
   }
+}
+
+/** Owner view: everything except the contents of `secret` records, which never leave the vault process. */
+function ownerRecord(r: VaultRecord) {
+  return r.sensitivity === "secret" ? { ...r, data: null, masked: true } : r;
 }
 
 /** What an AI may see of a record: no status, nothing internal. */
