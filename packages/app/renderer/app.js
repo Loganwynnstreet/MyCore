@@ -1,4 +1,4 @@
-import { createAvatar } from "./avatar.js";
+import { createAvatar, LOOKS, ACCESSORIES, DEFAULT_STYLE } from "./avatar.js";
 
 // Everything the page shows is built with textContent / text nodes. Vault content, including
 // suggestions written by AIs, is untrusted and must never be parsed as HTML.
@@ -14,7 +14,21 @@ const TYPE_PLURAL = {
 };
 
 const root = document.getElementById("root");
-const cori = createAvatar();
+
+// The guide's name, look and accessory are the user's choice and live only in this browser profile.
+const STYLE_KEY = "mycore.avatar";
+function loadStyle() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STYLE_KEY));
+    if (s && LOOKS[s.look] && ACCESSORIES[s.acc] && typeof s.name === "string" && s.name.trim()) {
+      return { name: s.name.trim().slice(0, 20), look: s.look, acc: s.acc };
+    }
+  } catch { /* first run, or storage unavailable */ }
+  return { ...DEFAULT_STYLE };
+}
+function saveStyle(st) { try { localStorage.setItem(STYLE_KEY, JSON.stringify(st)); } catch { /* not persisted */ } }
+let style = loadStyle();
+const cori = createAvatar(style);
 let statusTimer = null;
 
 // ---------- tiny helpers ----------
@@ -35,10 +49,22 @@ function h(tag, props = {}, ...kids) {
   return n;
 }
 
+// While a request is in flight (and slow enough to notice) she taps at her little keyboard.
+let inflight = 0;
+let workTimer = null;
 async function call(op, args = {}) {
-  const r = await window.mycore.call(op, args);
-  if (!r.ok) throw Object.assign(new Error(r.message || r.error), { code: r.error });
-  return r.result;
+  const visible = op !== "status"; // the background poll should not make her fidget
+  if (visible) {
+    inflight++;
+    if (!workTimer) workTimer = setTimeout(() => { if (inflight) cori.setWorking(true); }, 350);
+  }
+  try {
+    const r = await window.mycore.call(op, args);
+    if (!r.ok) throw Object.assign(new Error(r.message || r.error), { code: r.error });
+    return r.result;
+  } finally {
+    if (visible && --inflight === 0) { clearTimeout(workTimer); workTimer = null; cori.setWorking(false); }
+  }
 }
 
 function toast(msg) {
@@ -126,7 +152,7 @@ function onboarding() {
   const btn = h("button", { class: "btn primary", type: "submit" }, "Create my vault");
   form.append(btn);
   gate(cori.svg,
-    h("h1", {}, "Hi, I'm Cori"),
+    h("h1", {}, `Hi, I'm ${style.name}`),
     h("p", { class: "muted" }, "I'll look after your vault: the private place where your personal context lives, so you decide which AIs see what. Let's set a passphrase. Nobody, including me, can recover it for you."),
     form);
 }
@@ -149,7 +175,7 @@ function locked(message) {
   cori.setMood("sleep");
   const error = h("p", { class: "error", role: "alert" }, message || "");
   const pass = h("input", { type: "password", autocomplete: "current-password", id: "pw", required: true });
-  const btn = h("button", { class: "btn primary", type: "submit" }, "Wake up Cori");
+  const btn = h("button", { class: "btn primary", type: "submit" }, `Wake up ${style.name}`);
   const form = h("form", {
     onsubmit: async (e) => {
       e.preventDefault();
@@ -206,7 +232,9 @@ async function shell() {
   root.replaceChildren(h("div", { class: "shell" },
     h("aside", { class: "stage" },
       h("div", { class: "brand" }, h("i"), "MyCore"),
-      cori.svg, bubble, ui.chipsEl, h("div", { class: "spacer" }),
+      cori.svg, bubble, ui.chipsEl,
+      h("button", { class: "link-btn", onclick: customize }, `Customize ${style.name}`),
+      h("div", { class: "spacer" }),
       h("button", { class: "btn lock-btn", onclick: lockNow }, "Lock vault")),
     h("main", { class: "main" }, ui.tabsEl, ui.contentEl)));
   startPolling();
@@ -228,6 +256,45 @@ async function openTab(id) {
     if (e.code === "vault_locked") return locked("I locked up while you were away.");
     say(`Something went wrong: ${e.message}`, "worried");
   }
+}
+
+// ---------- Customize the guide ----------
+
+function customize() {
+  const draft = { ...style };
+  const dlg = h("dialog", {});
+  const apply = () => cori.setStyle(draft);
+  const name = h("input", { type: "text", maxLength: 20, value: draft.name, "aria-label": "Name" });
+  name.addEventListener("input", () => { draft.name = name.value; });
+  const swatches = Object.entries(LOOKS).map(([k, label]) => {
+    const input = h("input", { type: "radio", name: "look", value: k, checked: draft.look === k, "aria-label": label });
+    input.addEventListener("change", () => { draft.look = k; apply(); });
+    return h("label", { class: "swatch", "data-look": k, title: label }, input);
+  });
+  const acc = h("select", { "aria-label": "Accessory" }, Object.entries(ACCESSORIES).map(([k, label]) => h("option", { value: k, selected: draft.acc === k }, label)));
+  acc.addEventListener("change", () => { draft.acc = acc.value; apply(); });
+
+  const save = async (e) => {
+    e.preventDefault();
+    style = { name: draft.name.trim().slice(0, 20) || DEFAULT_STYLE.name, look: draft.look, acc: draft.acc };
+    saveStyle(style);
+    cori.setStyle(style);
+    dlg.close("saved");
+    say(`Looking good! Call me ${style.name} any time.`, "cheer");
+    document.querySelector(".link-btn").textContent = `Customize ${style.name}`;
+  };
+  dlg.append(h("form", { method: "dialog", class: "dialog-body", onsubmit: save },
+    h("h2", {}, "Make her yours"),
+    h("label", { class: "field" }, h("span", {}, "Name"), name),
+    h("div", { class: "field" }, h("span", { class: "field" }, "Colour"), h("div", { class: "swatches" }, swatches)),
+    h("label", { class: "field" }, h("span", {}, "Accessory"), acc),
+    h("div", { class: "dialog-actions" },
+      h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel"),
+      h("button", { class: "btn primary", type: "submit" }, "Save"))));
+  dlg.addEventListener("close", () => { if (dlg.returnValue !== "saved") cori.setStyle(style); dlg.remove(); });
+  document.body.append(dlg);
+  dlg.showModal();
+  name.focus();
 }
 
 // ---------- Today ----------
