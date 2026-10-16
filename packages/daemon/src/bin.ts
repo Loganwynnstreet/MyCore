@@ -1,13 +1,8 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
 import { Daemon } from "./daemon.js";
 import { defaultName, defaultRunDir, defaultVaultPath } from "./paths.js";
 
 const vaultPath = defaultVaultPath();
-if (!existsSync(vaultPath)) {
-  console.error(`No vault at ${vaultPath}. Run "mycore init" first.`);
-  process.exit(1);
-}
 const idleMin = Number(process.env.MYCORE_IDLE_MINUTES ?? 30);
 if (!Number.isFinite(idleMin) || idleMin <= 0) {
   console.error("MYCORE_IDLE_MINUTES must be a positive number");

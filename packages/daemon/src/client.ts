@@ -1,7 +1,7 @@
 import net from "node:net";
 import { readFileSync } from "node:fs";
 import { MAX_MESSAGE_BYTES, type Response } from "./protocol.js";
-import { ownerSecretPath } from "./daemon.js";
+import { ownerSecretPath } from "./paths.js";
 
 export interface Credentials { token?: string; secret?: string }
 

@@ -2,11 +2,13 @@
 
 export const MAX_MESSAGE_BYTES = 1024 * 1024;
 
-export type Channel = "ai" | "admin";
+import type { Channel } from "./paths.js";
+export type { Channel };
 
 export const AI_OPS = ["search", "list", "get", "add"] as const;
 export const ADMIN_OPS = [
   "status", "unlock", "lock", "pending", "approve", "reject", "grant", "revoke", "passports", "audit",
+  "records", "add_record", "remove_record", "stats", "create",
 ] as const;
 
 export interface Request {
