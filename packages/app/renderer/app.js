@@ -271,7 +271,7 @@ function customize() {
     input.addEventListener("change", () => { draft.look = k; apply(); });
     return h("label", { class: "swatch", "data-look": k, title: label }, input);
   });
-  const acc = h("select", { "aria-label": "Accessory" }, Object.entries(ACCESSORIES).map(([k, label]) => h("option", { value: k, selected: draft.acc === k }, label)));
+  const acc = h("select", { "aria-label": "Shape" }, Object.entries(ACCESSORIES).map(([k, label]) => h("option", { value: k, selected: draft.acc === k }, label)));
   acc.addEventListener("change", () => { draft.acc = acc.value; apply(); });
 
   const save = async (e) => {
@@ -284,10 +284,10 @@ function customize() {
     document.querySelector(".link-btn").textContent = `Customize ${style.name}`;
   };
   dlg.append(h("form", { method: "dialog", class: "dialog-body", onsubmit: save },
-    h("h2", {}, "Make her yours"),
+    h("h2", {}, "Make it yours"),
     h("label", { class: "field" }, h("span", {}, "Name"), name),
     h("div", { class: "field" }, h("span", { class: "field" }, "Colour"), h("div", { class: "swatches" }, swatches)),
-    h("label", { class: "field" }, h("span", {}, "Accessory"), acc),
+    h("label", { class: "field" }, h("span", {}, "Shape"), acc),
     h("div", { class: "dialog-actions" },
       h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel"),
       h("button", { class: "btn primary", type: "submit" }, "Save"))));

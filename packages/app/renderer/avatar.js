@@ -1,13 +1,10 @@
-// Picks the 3D dino when WebGL is available and falls back to the flat SVG guide otherwise.
+// Picks the 3D essence when WebGL is available and falls back to a CSS orb otherwise.
 import { createAvatar as create2D } from "./avatar2d.js";
 import { createAvatar3D } from "./avatar3d/index.js";
 
-export const LOOKS = { green: "Green", blue: "Blue", pink: "Pink", orange: "Orange" };
-export const ACCESSORIES = { none: "Nothing", headphones: "Headphones", sunglasses: "Sunglasses" };
-export const DEFAULT_STYLE = { name: "Cori", look: "green", acc: "none" };
-
-// the flat fallback keeps its own palette names
-const FLAT = { green: "sage", blue: "lilac", pink: "peach", orange: "cream" };
+export const LOOKS = { aurora: "Aurora", ember: "Ember", ocean: "Ocean", mint: "Mint" };
+export const ACCESSORIES = { orb: "Orb", blob: "Blob", wisp: "Wisp" }; // her shape
+export const DEFAULT_STYLE = { name: "Cori", look: "aurora", acc: "orb" };
 
 function webglAvailable() {
   try {
@@ -21,9 +18,5 @@ export function createAvatar(style = DEFAULT_STYLE) {
   if (!force2d && webglAvailable()) {
     try { return createAvatar3D(style); } catch (e) { console.warn("3D guide unavailable, using the flat one:", e); }
   }
-  const flat = (s) => ({ ...s, look: FLAT[s.look] || "cream" });
-  const a = create2D(flat(style));
-  const setStyle = a.setStyle;
-  a.setStyle = (s) => setStyle(flat(s));
-  return a;
+  return create2D(style);
 }

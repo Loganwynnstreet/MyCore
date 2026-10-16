@@ -18,17 +18,20 @@ Notes
 - Page content is always rendered with `textContent`; vault text, including AI suggestions, is untrusted.
 - `renderer/mock.js` is only used when the page is opened outside Electron.
 
-## The 3D guide
-A chubby long-necked dinosaur in denim shorts, with a heart-and-keyhole emblem on her flank.
-`renderer/avatar3d/` (three.js + GSAP, bundled by esbuild into `renderer/bundle/`):
-- `toon.js`: cel-shaded material with a four-band ramp, and ink outlines (inverted hull pushed along normals)
-- `tube.js`: a tapered tube that is re-shaped every frame, used for the neck and tail
-- `dino.js`: procedural model and rig (torso, neck, head, tail, paws, denim shorts with a canvas-drawn
-  texture, emblem, face, headphones, sunglasses, keyboard); the colour rule puts light green on the front
-- `index.js`: animation: idle life (breathing, tail wag, blinks, saccades, head that follows the cursor),
-  mood poses tweened with GSAP, one-shot performances (jump with anticipation and overshoot, pop, shake,
-  wave, wake-up), and springs for secondary motion (tail segments, neck sway, head nod and roll)
-- Four colours (green, blue, pink, orange) and optional headphones or sunglasses; shorts stay denim.
-- Falls back to the flat SVG guide (`avatar2d.js`) when WebGL is unavailable, or with `?2d` in the URL.
+## The guide: a living essence
+A faceless, glowing blob in the spirit of a voice-assistant orb. Her mood is carried entirely by motion,
+colour and light: no face, no limbs. `renderer/avatar3d/` (three.js + GSAP, bundled by esbuild into `renderer/bundle/`):
+- `essence.js`: the model. A custom shader displaces an icosphere with 3D simplex noise (normals are recomputed
+  by finite differences), fills it with flowing three-colour gradients and a soft translucent core, and wraps it in
+  an aura drawn from the inside of a larger shell so only the glow beyond the silhouette shows. Plus a background
+  halo, a floating contact shadow, expanding ripples, orbiting motes and sparkles.
+- `index.js`: animation. Idle life (breathing, floating, leaning towards the pointer, ever-flowing colour), mood
+  poses tweened with GSAP (surface energy, speed, swirl, glow, tint, size, jitter), one-shot performances (a hop
+  with anticipation, squash and overshoot; a pop with ripples; a shiver; a hello pulse; a wake-up swell), and
+  springs for the lean and landing. While a request is in flight she swirls faster and the motes orbit quicker.
+- Moods: sleep (dim, small, slow), happy (calm flow), alert (warm, bright, ripples), think (fast swirl),
+  worried (rose tint, jitter), cheer (hop, burst, sparkles).
+- Four colour schemes (aurora, ember, ocean, mint) and three shapes (orb, blob, wisp).
+- Falls back to a CSS orb (`avatar2d.js`) when WebGL is unavailable, or with `?2d` in the URL.
 - Honours `prefers-reduced-motion`. Rendering is capped at 60 fps and pauses when the window is hidden.
 - Open the page with `?debug` to get `window.__guide` for driving moods from automation.
